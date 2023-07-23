@@ -1,29 +1,33 @@
 #!/bin/bash
 
-# Check if a Tag is provided as an argument
-if [ -z "$1" ]; then
-  echo "Usage: $0 <Tag>"
+# Ensure a tag argument is provided
+if [ -z "$1" ] || [ -z "$2" ] ; then
+  echo "Please provide Usage:$1 <openrc> $2 <tag>"
   exit 1
 fi
 
-# Read the provided Tag from the command-line argument
-Tag="$1"
-router_name="${Tag}_router"
+# Retrieve the specified tag
+openrc_file="$1"
+tag="$2"
+# Identify the corresponding router name based on the tag
+router_name="${tag}_router"
 
-# Check if a keypair with the specified Tag exists and delete it
-keypair_name=$(openstack keypair list -f value -c Name | grep $Tag)
+source "$openrc_file"
+
+# Discover the keypair name associated with the given tag
+keypair_name=$(openstack keypair list -f value -c Name | grep $tag)
 if [ -n "$keypair_name" ]; then
   openstack keypair delete "$keypair_name"
   if [ $? -eq 0 ]; then
-    echo "Tag '$Tag' removed from keypair '$keypair_name'."
+    echo "tag '$tag' removed from keypair '$keypair_name'."
   else
-    echo "Failed to remove Tag '$Tag' from keypair '$keypair_name'."
+    echo "Failed to remove tag '$tag' from keypair '$keypair_name'."
   fi
 else
-  echo "No keypair found with Tag '$Tag'."
+  echo "No keypair found with tag '$tag'."
 fi
 
-# Check and remove floating IP addresses
+# Remove floating IP addresses
 floating_ips=$(openstack floating ip list -f value -c ID)
 if [ -n "$floating_ips" ]; then
   while read -r floating_ip; do
@@ -38,8 +42,8 @@ else
   echo "No floating IP addresses found."
 fi
 
-# Delete servers with names starting with the Tag
-server_names=$(openstack server list --name "^${Tag}*" -f value -c Name)
+# Delete servers with names starting with the specified tag
+server_names=$(openstack server list --name "^${tag}*" -f value -c Name)
 if [ -n "$server_names" ]; then
   while read -r server_name; do
     openstack server delete "$server_name"
@@ -50,13 +54,13 @@ if [ -n "$server_names" ]; then
     fi
   done <<< "$server_names"
 else
-  echo "No servers found with names starting with '$Tag'."
+  echo "No servers found with names starting with '$tag'."
 fi
 
-# Check if the router exists
+# Verify if the router exists
 openstack router show "$router_name" > /dev/null 2>&1
 if [ $? -eq 0 ]; then
-  subnet_name="${Tag}_subnet"
+  subnet_name="${tag}_subnet"
 
   # Disconnect subnet from router
   openstack router remove subnet "$router_name" "$subnet_name"
@@ -67,7 +71,7 @@ if [ $? -eq 0 ]; then
     exit 1
   fi
 
-  # Delete the subnet
+  # Delete  subnets
   openstack subnet delete "$subnet_name"
   if [ $? -eq 0 ]; then
     echo "Subnet '$subnet_name' deleted."
@@ -75,7 +79,7 @@ if [ $? -eq 0 ]; then
     echo "Failed to delete subnet '$subnet_name'."
   fi
 
-  # Delete the router
+  # Delete routers
   openstack router delete "$router_name"
   if [ $? -eq 0 ]; then
     echo "Router '$router_name' deleted."
@@ -86,8 +90,8 @@ else
   echo "Router '$router_name' not found."
 fi
 
-# Delete the network
-network_name="${Tag}_network"
+# Delete  networks
+network_name="${tag}_network"
 openstack network delete "$network_name" > /dev/null 2>&1
 if [ $? -eq 0 ]; then
   echo "Network '$network_name' deleted."
@@ -95,8 +99,9 @@ else
   echo "Failed to delete network '$network_name' or network not found."
 fi
 
-# Check if there are any networks remaining
-remaining_networks=$(openstack network list --Tags "$Tag" -f value -c ID)
+# Check if there are any remaining networks
+remaining_networks=$(openstack network list --tags "$tag" -f value -c ID)
 if [ -z "$remaining_networks" ]; then
-  echo "No networks found with Tag '$Tag'."
+  echo "No networks found with tag '$tag'."
 fi
+
