@@ -24,4 +24,4 @@ please follow this struct in command line :operate <openrc> <tag> <ssh_key>
 Cleanup program cleans up resources created by the operate and install  programs in an OpenStack environment. It deletes the nodes, servers, subnets, networks, routers, key pairs, security groups, and volumes associated with the specified project. The program uses the OpenStack command-line tools to perform the cleanup tasks and prints the status of the remaining resources after the cleanup process is completed.
 please follow this struct in command line :  cleanup <openrc> <tag> <ssh_key>
 
-
+ok
