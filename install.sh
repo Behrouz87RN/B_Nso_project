@@ -130,40 +130,35 @@ else
 fi
 
 # Check if the Node1 ans Node2 and Node3 servers with the specified tag already exists, and create if not
+for ((i = 1; i <= 3; i++)); do
+    Node_server_exists=$(openstack server show -f value -c name "${tag}_Node$i" 2>/dev/null)
+    if [ -n "$Node_server_exists" ]; then
+        echo "The Node$i server with the tag '$tag' already exists: ${tag}_Node$i"
+    else
+    # Create the Node$i server instance with the same configuration as the previous servers
+        openstack server create --flavor "$flavor" --image "$image_name" --network "$network_name" \
+            --security-group "$SecurityGroup" --key-name "$KeyName" "${tag}_Node$i"
+        echo "Node$i server created with the name '${tag}_Node$i'"
+    fi
+done
 
-Node1_server_exists=$(openstack server show -f value -c name "${tag}_Node1" 2>/dev/null)
-if [ -n "$Node1_server_exists" ]; then
-    echo "The Node1 server with the tag '$tag' already exists: ${tag}_Node1"
-else
- # Create the Node1 server instance with the same configuration as the previous servers
-    openstack server create --flavor "$flavor" --image "$image_name" --network "$network_name" \
-        --security-group "$SecurityGroup" --key-name "$KeyName" "${tag}_Node1"
-    echo "Node1 server created with the name '${tag}_Node1'"
-fi
+# Create the 'hosts' file
+hosts_file="hosts"
+echo "[haproxy]" > "$hosts_file"
+echo "${tag}_proxy" >> "$hosts_file"
+echo "" >> "$hosts_file"
 
+echo "[webservers]" >> "$hosts_file"
+echo "${tag}_Node1" >> "$hosts_file"
+echo "${tag}_Node2" >> "$hosts_file"
+echo "${tag}_Node3" >> "$hosts_file"
+echo "" >> "$hosts_file"
 
+echo "[all:vars]" >> "$hosts_file"
+echo "ansible_user=ubuntu" >> "$hosts_file"
+echo "ansible_ssh_private_key_file=/.ssh/id_rsa.pub" >> "$hosts_file"
 
-Node2_server_exists=$(openstack server show -f value -c name "${tag}_Node2" 2>/dev/null)
-if [ -n "$Node2_server_exists" ]; then
-    echo "The Node2 server with the tag '$tag' already exists: ${tag}_Node2"
-else
-# Create the Node2 server instance with the same configuration as the previous servers
-    openstack server create --flavor "$flavor" --image "$image_name" --network "$network_name" \
-        --security-group "$SecurityGroup" --key-name "$KeyName" "${tag}_Node2"
-    echo "Node2 server created with the name '${tag}_Node2'"
-fi
-
-
-
-Node3_server_exists=$(openstack server show -f value -c name "${tag}_Node3" 2>/dev/null)
-if [ -n "$Node3_server_exists" ]; then
-    echo "The Node3 server with the tag '$tag' already exists: ${tag}_Node3"
-else
-    # Create the Node3 server instance with the same configuration as the previous servers
-    openstack server create --flavor "$flavor" --image "$image_name" --network "$network_name" \
-        --security-group "$SecurityGroup" --key-name "$KeyName" "${tag}_Node3"
-    echo "Node3 server created with the name '${tag}_Node3'"
-fi
+echo "host configuration file created: $hosts_file"
 
 bastion_ip=$(openstack server show -f value -c addresses $ServerName | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
 echo " IP bastion = '$bastion_ip'"
@@ -191,7 +186,7 @@ echo "Assigned floating IP $floating_ip_bastion to server $ServerName"
 echo "Assigned floating IP $floating_ip_proxy to server $ProxyServerName"
 
 # Build base SSH config file for easy access to the servers
-ssh_config_file="SSH-config"
+ssh_config_file="config"
 
 echo "# SSH configuration for ${tag}_Node1" > "$ssh_config_file"
 echo "Host ${tag}_Node1" >> "$ssh_config_file"
@@ -239,11 +234,17 @@ echo "Copying public key to the Bastion server"
 scp  -o StrictHostKeyChecking=no id_rsa.pub ubuntu@$floating_ip_bastion:~/.ssh
 scp  -o BatchMode=yes id_rsa ubuntu@$floating_ip_bastion:~/.ssh
 scp  -o BatchMode=yes  $ssh_config_file ubuntu@$floating_ip_bastion:~/.ssh
-scp  -o BatchMode=yes  -r ansible ubuntu@$floating_ip_bastion:~/.ssh
+scp  -o BatchMode=yes  hosts ubuntu@$floating_ip_bastion:~/.ssh
+scp  -o BatchMode=yes  site.yaml ubuntu@$floating_ip_bastion:~/.ssh
+scp  -o BatchMode=yes  snmpd.conf ubuntu@$floating_ip_bastion:~/.ssh
+scp  -o BatchMode=yes  my_flask_app.service ubuntu@$floating_ip_bastion:~/.ssh
+scp  -o BatchMode=yes  application2.py ubuntu@$floating_ip_bastion:~/.ssh
+scp  -o BatchMode=yes  haproxy.cfg.j2 ubuntu@$floating_ip_bastion:~/.ssh
+
 # Run the Ansible playbook on the Bastion server
-ssh -i id_rsa.pub ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/ansible/hosts ~/.ssh/ansible/site.yaml "
+ssh -i id_rsa.pub ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml "
 
-
+#shellcheck "$0"
 
 
 
