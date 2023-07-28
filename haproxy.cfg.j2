@@ -14,5 +14,5 @@ backend backend_servers
     timeout queue 40000
     option httpchk
 {%  for server in groups['webservers'] %}
-    server {{ hostvars[server]['inventory_hostname'] }} {{ hostvars[server]['ansible_default_ipv4']['address']}}:80
+    server {{ hostvars[server]['inventory_hostname'] }} {{ hostvars[server]['ansible_default_ipv4']['address']}}:5000
 {% endfor %}
