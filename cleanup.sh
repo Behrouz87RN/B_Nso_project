@@ -19,9 +19,9 @@ keypair_name=$(openstack keypair list -f value -c Name | grep $tag)
 if [ -n "$keypair_name" ]; then
   openstack keypair delete "$keypair_name"
   if [ $? -eq 0 ]; then
-    echo "tag '$tag' removed from keypair '$keypair_name'."
+    echo "$(date '+%Y-%m-%d %H:%M:%S') tag '$tag' removed from keypair '$keypair_name'."
   else
-    echo "Failed to remove tag '$tag' from keypair '$keypair_name'."
+    echo "$(date '+%Y-%m-%d %H:%M:%S')Failed to remove tag '$tag' from keypair '$keypair_name'."
   fi
 else
   echo "No keypair found with tag '$tag'."
@@ -33,13 +33,13 @@ if [ -n "$floating_ips" ]; then
   while read -r floating_ip; do
     openstack floating ip delete "$floating_ip"
     if [ $? -eq 0 ]; then
-      echo "Floating IP '$floating_ip' deleted."
+      echo "$(date '+%Y-%m-%d %H:%M:%S')Floating IP '$floating_ip' deleted."
     else
-      echo "Failed to delete floating IP '$floating_ip'."
+      echo "$(date '+%Y-%m-%d %H:%M:%S')Failed to delete floating IP '$floating_ip'."
     fi
   done <<< "$floating_ips"
 else
-  echo "No floating IP addresses found."
+  echo "$(date '+%Y-%m-%d %H:%M:%S')No floating IP addresses found."
 fi
 
 # Delete servers with names starting with the specified tag
@@ -48,13 +48,13 @@ if [ -n "$server_names" ]; then
   while read -r server_name; do
     openstack server delete "$server_name"
     if [ $? -eq 0 ]; then
-      echo "Server '$server_name' deleted."
+      echo "$(date '+%Y-%m-%d %H:%M:%S')Server '$server_name' deleted."
     else
-      echo "Failed to delete server '$server_name'."
+      echo "$(date '+%Y-%m-%d %H:%M:%S')Failed to delete server '$server_name'."
     fi
   done <<< "$server_names"
 else
-  echo "No servers found with names starting with '$tag'."
+  echo "$(date '+%Y-%m-%d %H:%M:%S')No servers found with names starting with '$tag'."
 fi
 
 # Verify if the router exists
@@ -65,43 +65,43 @@ if [ $? -eq 0 ]; then
   # Disconnect subnet from router
   openstack router remove subnet "$router_name" "$subnet_name"
   if [ $? -eq 0 ]; then
-    echo "Subnet '$subnet_name' disconnected from router '$router_name'."
+    echo "$(date '+%Y-%m-%d %H:%M:%S')Subnet '$subnet_name' disconnected from router '$router_name'."
   else
-    echo "Failed to disconnect subnet '$subnet_name' from router '$router_name'."
+    echo "$(date '+%Y-%m-%d %H:%M:%S')Failed to disconnect subnet '$subnet_name' from router '$router_name'."
     exit 1
   fi
 
   # Delete  subnets
   openstack subnet delete "$subnet_name"
   if [ $? -eq 0 ]; then
-    echo "Subnet '$subnet_name' deleted."
+    echo "$(date '+%Y-%m-%d %H:%M:%S')Subnet '$subnet_name' deleted."
   else
-    echo "Failed to delete subnet '$subnet_name'."
+    echo "$(date '+%Y-%m-%d %H:%M:%S')Failed to delete subnet '$subnet_name'."
   fi
 
   # Delete routers
   openstack router delete "$router_name"
   if [ $? -eq 0 ]; then
-    echo "Router '$router_name' deleted."
+    echo "$(date '+%Y-%m-%d %H:%M:%S')Router '$router_name' deleted."
   else
-    echo "Failed to delete router '$router_name'."
+    echo "$(date '+%Y-%m-%d %H:%M:%S')Failed to delete router '$router_name'."
   fi
 else
-  echo "Router '$router_name' not found."
+  echo "$(date '+%Y-%m-%d %H:%M:%S')Router '$router_name' not found."
 fi
 
 # Delete  networks
 network_name="${tag}_network"
 openstack network delete "$network_name" > /dev/null 2>&1
 if [ $? -eq 0 ]; then
-  echo "Network '$network_name' deleted."
+  echo "$(date '+%Y-%m-%d %H:%M:%S')Network '$network_name' deleted."
 else
-  echo "Failed to delete network '$network_name' or network not found."
+  echo "$(date '+%Y-%m-%d %H:%M:%S')Failed to delete network '$network_name' or network not found."
 fi
 
 # Check if there are any remaining networks
 remaining_networks=$(openstack network list --tags "$tag" -f value -c ID)
 if [ -z "$remaining_networks" ]; then
-  echo "No networks found with tag '$tag'."
+  echo "$(date '+%Y-%m-%d %H:%M:%S')No networks found with tag '$tag'."
 fi
 
