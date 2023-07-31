@@ -6,15 +6,13 @@ formatted_time=$(date +"%Y-%m-%d %H:%M:%S")
 
 
 cleanup_keypair() {
-  keypair_names=$(openstack keypair list -f value -c Name | grep $tag)
-  if [ -n "$keypair_names" ]; then
-    for keypair_name in $keypair_names; do
-      if openstack keypair delete "$keypair_name"; then
-        echo "$formatted_time Tag '$tag' removed from keypair '$keypair_name'."
-      else
-        echo "$formatted_time Failed to remove tag '$tag' from keypair '$keypair_name'."
-      fi
-    done
+  keypair_name=$(openstack keypair list -f value -c Name | grep "$tag")
+  if [ -n "$keypair_name" ]; then
+    if openstack keypair delete "$keypair_name"; then
+      echo "$formatted_time Tag '$tag' removed from keypair '$keypair_name'."
+    else
+      echo "$formatted_time Failed to remove tag '$tag' from keypair '$keypair_name'."
+    fi
   else
     echo "$formatted_time No keypair found with tag '$tag'."
   fi
@@ -93,10 +91,10 @@ cleanup_network() {
     echo "$formatted_time Failed to remove $network_name or network not found."
   fi
 
-  remaining_networks=$(openstack network list --tags "$tag" -f value -c ID)
-  remaining_subnets=$(openstack subnet list --tags "$tag" -f value -c ID)
-  remaining_routers=$(openstack router list --tags "$tag" -f value -c ID)
-  remaining_keypairs=$(openstack keypair list --tags "$tag" -f value -c ID)
+  remaining_networks=$(openstack network list -f value | grep "$tag" )
+  remaining_subnets=$(openstack subnet list -f value | grep "$tag" )
+  remaining_routers=$(openstack router list -f value | grep "$tag" )
+  remaining_keypairs=$(openstack keypair list -f value | grep "$tag")
 
   echo "$formatted_time Checking for $tag in project."
   echo "$formatted_time Remaining resources: (network)($remaining_networks)(subnet)($remaining_subnets)(router)($remaining_routers)(keypairs)($remaining_keypairs)"
