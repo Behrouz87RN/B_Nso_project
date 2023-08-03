@@ -74,21 +74,80 @@ echo "${formatted_time}: Reading server.conf, we need $num_nodes nodes."
 floating_ips=$(openstack floating ip list -f value -c "Floating IP Address" )
 floating_ip_bastion=$(echo "$floating_ips" | awk 'NR==1')
 
+# Function to replace IP address for a specific node
+replace_node_ip_sshConfig() {
+    # SSH into the bastion and read the content of ~/.ssh/config
+    ssh_lines=$(ssh -i id_rsa.pub ubuntu@"$floating_ip_bastion" 'cat ~/.ssh/config')
+
+    local node_name=$1
+    local new_ip=$2
+
+    # Use awk to find the line containing "HostName" for the specified node and replace the IP address
+    new_ssh_lines=$(echo "$ssh_lines" | awk -v target="$node_name" -v newip="$new_ip" '
+        /^Host / {
+            host_entry = $2;
+        }
+        host_entry == target && $1 == "HostName" {
+            $1 = "  HostName";
+            $2 = newip;
+        }
+        { print }
+    ')
+    # Write the updated SSH config file
+    printf "%s\n" "$new_ssh_lines" > "config"
+    scp  -o BatchMode=yes config ubuntu@$floating_ip_bastion:~/.ssh/config
+}
+
+playbook() {
+    echo "$formatted_time Running playbook..."
+    # Run the Ansible playbook on the Bastion server
+    ssh -o StrictHostKeyChecking=no -i id_rsa.pub ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml "
+}
+
+
+# Create the  server
+createServer () {
+    local Server=$1
+    openstack server create --flavor "$flavor" --image "$image_id" --network "$NetworkName" \
+    --security-group "$SecurityGroup" --key-name "$KeyName" "$Server" >/dev/null 2>&1 
+    sleep 5
+    server_exists1=$(openstack -q server show -f value -c name "$Server" 2>/dev/null)
+    if [ -n "$server_exists1" ]; then
+        echo "$formatted_time  server created with the name '$server_exists1'"
+        new_ip=$(openstack server show -f value -c addresses $Server | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+        echo "$new_ip"
+        replace_node_ip_sshConfig "$Server" "$new_ip" 
+        sleep 2
+        playbook
+    fi       
+}
+
+
 while true; do
-    echo "restart"
+    # Read server.conf to get the required number of nodes
+    config_lines=$(<server.conf)
+    # Extract the number of nodes required from server.conf
+    num_nodes=$(echo "$config_lines" | grep -oP 'num_nodes = \K\d+')
+    if [ -z "$num_nodes" ]; then
+        echo "${formatted_time} Unable to find the required number of nodes in server.conf."
+        exit 1
+    fi
+    echo "${formatted_time} Reading server.conf, we need $num_nodes nodes."
     available_nodes=()
     unreachable_nodes=()
 
     # ping hosts
     for ((i = 1; i <= num_nodes; i++)); do
-        node_name="${tag}_Node$i"
+        node_name="${tag}_Node${i}"
         node_ip=$(openstack server show -f value -c addresses "${node_name}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
-            pingResult=$(ssh -i id_rsa.pub ubuntu@$floating_ip_bastion "ping -q -c 1 $node_ip" ) 
-            if (-n $pingResult ) ; then
-                available_nodes+=("$node_name")
-            else
-                unreachable_nodes+=("$node_name")
-            fi
+        echo "$node_ip"
+        ssh -i id_rsa.pub ubuntu@$floating_ip_bastion "ping -q -c 1 $node_ip ">/dev/null 2>&1
+
+        if [ $? -eq 0 ]; then
+            available_nodes+=("$node_name")
+        else
+            unreachable_nodes+=("$node_name")
+        fi
     done
 
     echo "Servers with ping:"
@@ -105,7 +164,7 @@ while true; do
     num_unavailable_nodes="${#unreachable_nodes[@]}"
 
     if [ "$num_available_nodes" -eq "$num_nodes" ]; then
-        echo "Checking solution, we have: $num_available_nodes nodes. Sleeping for 30 seconds.."
+        echo "${formatted_time} Checking solution, we have: $num_available_nodes nodes. Sleeping for 30 seconds.."
         sleep 30
         continue
     else
@@ -117,63 +176,17 @@ while true; do
                 echo "$formatted_time The server with the tag '$tag' already exists but not available: $Server" so it will be delete
                     if openstack server delete "$Server"; then
                         echo "$formatted_time Releasing $Server"
-                        createServer $Server 
+                        createServer "$Server"
                     else
                         echo "$formatted_time Failed to release $Server"
                     fi
             else
                 echo "  $Server does not exist so it will be create"
-                createServer $Server 
+                createServer "$Server" 
             fi
         done 
     fi
 done
-
-
-# Create the  server
-createServer ( ) {
-    local Server=$1
-    openstack server create --flavor "$flavor" --image "$image_id" --network "$NetworkName" \
-    --security-group "$SecurityGroup" --key-name "$KeyName" "$Server" >/dev/null 2>&1 
-    server_exists1=$(openstack -q server show -f value -c name "$Server" 2>/dev/null)
-    sleep 10
-    if [ -n "$server_exists1" ]; then
-        echo "$formatted_time Proxy server created with the name '$server_exists1'"
-        new_ip=$(openstack server show -f value -c addresses $Server | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
-        replace_node_ip_sshConfig $Server, $new_ip 
-        sleep 2
-        playbook
-    fi       
-}
-
-
-# Function to replace IP address for a specific node
-replace_node_ip_sshConfig() {
-    # SSH into the bastion and read the content of ~/.ssh/config
-    ssh_lines=$(ssh -i id_rsa.pub ubuntu@"$floating_ip_bastion" 'cat ~/.ssh/config')
-
-    local node_name=$1
-    local new_ip=$2
-    # Use awk to find the line containing "HostName" for the specified node and replace the IP address
-    ssh_lines=$(echo "$ssh_lines" | awk -v node="$node_name" -v ip="$new_ip" '
-        /^Host / {
-            host_entry = $2;
-        }
-        host_entry == node && $1 == "HostName" {
-            $2 = ip;
-        }
-        { print }
-    ')
-    # Write the updated SSH config file
-    printf "%s\n" "$ssh_lines" > "config"
-    scp  -o BatchMode=yes config ubuntu@$floating_ip_bastion:~/.ssh
-}
-
-playbook(){
-echo "$formatted_time Running playbook..."
-# Run the Ansible playbook on the Bastion server
-ssh -i id_rsa.pub ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml "
-}
 
 
 
