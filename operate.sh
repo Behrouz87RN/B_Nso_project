@@ -177,17 +177,15 @@ udpate_files() {
 
 check_and_delete_server() {
     local Server="$1"
-    local tag="$2"
     local formatted_time=$(date +"%Y-%m-%d %H:%M:%S")
 
     ServerUnreachableExists=$(openstack -q server show -f value -c name "$Server" 2>/dev/null)
-
     if [ -n "$ServerUnreachableExists" ]; then
-        echo "${formatted_time} The server with the tag ${tag} already exists but not available: ${Server} so it will be deleted..."
+        #echo "${formatted_time} The server with the tag ${tag} already exists but not available: ${Server} so it will be deleted..."
         if openstack server delete "$Server"; then
-            echo "$formatted_time Releasing $Server"
+            echo "$formatted_time Deleted $Server"
         else
-            echo "$formatted_time Failed to release $Server"
+            echo "$formatted_time Failed to delete $Server"
         fi
     fi
 }
@@ -208,6 +206,20 @@ validate_operation() {
     if ((NumOfNodes >= num_nodes)); then
         echo "$formatted_time ok"
     fi
+
+    echo "$formatted_time Running SNMP check..."
+    # Assuming your Bastion server's IP is stored in the $floating_ip_bastion variable
+    # Modify the SNMP OID and other parameters as needed for your SNMP check
+    snmp_oid="1.3.6.1.2.1.1.1.0"
+    for ((i = 1; i <= 3; i++)); do
+        snmp_output=$(run_snmpget "$floating_ip_proxy" "$snmp_oid" )
+        snmpwalk -c public -v2c $floating_ip_proxy 1.3.6.1.2.1.1.1
+        echo "SNMP Result for Iteration $i:"
+        echo "$snmp_output"
+        echo
+        sleep 2
+    done
+    echo "$formatted_time SNMP check completed."
 }
 
 
@@ -276,52 +288,44 @@ while true; do
  
     for Server in "${unreachable_nodes[@]}"; do
         echo "Clean up $Server"
-        ServerUnreachableExists=$(openstack -q server show -f value -c name "$Server" 2>/dev/null)
-        if [ -n "$ServerUnreachableExists" ]; then
-            echo "${formatted_time} The server with the tag ${tag} already exists but not available: ${Server} so it will be delete..."
-            if openstack server delete "$Server"; then
-                echo "$formatted_time Releasing $Server"
-            else
-                echo "$formatted_time Failed to release $Server"
-            fi
-        fi
+        check_and_delete_server "$Server"
+        # ServerUnreachableExists=$(openstack -q server show -f value -c name "$Server" 2>/dev/null)
+        # if [ -n "$ServerUnreachableExists" ]; then
+        #     echo "${formatted_time} The server with the tag ${tag} already exists but not available: ${Server} so it will be delete..."
+        #     if openstack server delete "$Server"; then
+        #         echo "$formatted_time Releasing $Server"
+        #     else
+        #         echo "$formatted_time Failed to release $Server"
+        #     fi
+        # fi
     done
 
     #if [ "$num_available_nodes" -gt "$serverConf_Num"]; then
     if [ "$num_available_nodes" -gt "$serverConf_Num" ]; then
-        # remove extra servers name
-        last_node="${available_nodes[num_available_nodes - 1]}"
-        check_and_delete_server "$last_node"
 
+        while [[ ${#available_nodes[@]} -ne $serverConf_Num ]]; do
+            # remove extra servers name
+            last_node="${available_nodes[num_available_nodes - 1]}"
+            check_and_delete_server "$last_node"
+            unset "available_nodes[$num_available_nodes - 1]"
+            echo ">>> ${available_nodes[@]}"
+            num_available_nodes="${#available_nodes[@]}"
+            sleep 2
+        done
 
-    # elif [ "$num_available_nodes" -lt "$serverConf_Num"]; then
-    #     # add new nodes
-    #     for $i=1; $i <= $serverConf_Num - $num_available_nodes; $i++;  do
-    #         # check for first available number
-    #         for $j=1; $j <= $serverConf_Num; $j++; do
-    #             if is_node_available "${tag}_Node$j" "$available_nodes"; then
-    #                 # there is already a node with this name
-    #             else
-    #                 createServer "${tag}_Node$j";
-    #                     # Append the new server name to the file "available_nodes"
-    #                     echo " $NewServerName" >> available_nodes
-    #                 break;
-    #             fi
-    #         done
-    #     done
-
-    # if
     elif [ "$num_available_nodes" -lt "$serverConf_Num" ]; then
     # Add new nodes
         echo "Available Nodes ${available_nodes[@]}"
-        for ((i=1; i<=$serverConf_Num; i++)); do
+        # for ((i=1; i<=$serverConf_Num; i++)); do
+        i=0
+        while [[ ${#available_nodes[@]} -ne $serverConf_Num ]]; do
+            ((i++))
             newNode="${tag}_Node$i"
               if [[ ! " ${available_nodes[*]} " =~ " $newNode " ]]; then
                 echo "Creating new node: $newNode"
                 createServer "$newNode";
+                sleep 2
                 available_nodes+=("$newNode")
-
-                break
             fi
         done
     fi
@@ -329,6 +333,7 @@ while true; do
     echo "NEW Avialable nodes are ${available_nodes[@]}"
     num_available_nodes="${#available_nodes[@]}"
     udpate_files "${available_nodes[@]}"
+
     num_available_nodes="${#available_nodes[@]}"
     playbook 
     validate_operation "$num_available_nodes"
