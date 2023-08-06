@@ -1,10 +1,14 @@
 frontend http80
+
     bind *:80
     timeout client 10000ms
     mode http
-    default_backend backend_servers
+    default_backend backend_http_servers
 
-backend backend_servers
+
+
+backend backend_http_servers
+
     balance {{ algorithm }}
     mode http
     timeout connect 10000ms
@@ -13,6 +17,33 @@ backend backend_servers
     maxconn 50000
     timeout queue 40000
     option httpchk
-{%  for server in groups['webservers'] %}
-    server {{ hostvars[server]['inventory_hostname'] }} {{ hostvars[server]['ansible_default_ipv4']['address']}}:5000
+
+{% for server in groups['webservers'] %}
+    server {{ hostvars[server]['inventory_hostname'] }} {{ hostvars[server]['ansible_default_ipv4']['address'] }}:5000
 {% endfor %}
+
+
+
+frontend snmp161
+
+    bind *:161
+    timeout client 10000ms
+    mode udp
+    default_backend backend_snmp_servers
+
+
+
+backend backend_snmp_servers
+
+    balance {{ algorithm }}
+    mode udp
+    timeout connect 10000ms
+    timeout server 300000ms
+    retries 3
+    maxconn 50000
+    option tcp-check
+
+{% for server in groups['webservers'] %}
+    server {{ hostvars[server]['inventory_hostname'] }} {{ hostvars[server]['ansible_default_ipv4']['address'] }}:6000
+{% endfor %}
+
