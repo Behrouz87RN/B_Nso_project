@@ -1,0 +1,12 @@
+stream {
+    upstream udp_backend {
+        {% for server in groups['webservers'] %}
+        server {{ hostvars[server]['ansible_default_ipv4']['address'] }}:6000;
+        {% endfor %}
+    }
+
+    server {
+        listen 161 udp;
+        proxy_pass udp_backend;
+    }
+}
