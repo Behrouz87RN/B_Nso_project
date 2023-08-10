@@ -2,7 +2,7 @@
 
 # Check if all required command-line arguments are provided
 if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
-    echo "Please provide the path to the openrc file, tag, and public key as command-line arguments."
+    echo "Please provide the path to the openrc file, tag, and public key as command-line arguments . $0 <openrc> <tag>"
     exit 1
 fi
 # Read the command-line arguments
@@ -22,13 +22,20 @@ flavor="1C-2GB"
 
 formatted_time=$(date +"%Y-%m-%d %H:%M:%S")
 
+# Removing the ".pub" extension and storing it in a new variable
+KeyNameP="${PublicKey%.pub}"
+# Check if the file exists in the root folder
+if [ ! -e "./$KeyNameP" ]; then
+    echo "$formatted_time The file $KeyNameP does not exist in the root folder."
+    exit 1
+fi
 
 # Source the OpenStack environment variables from the provided OpenRC file
 source "$openrc_file"
-echo "$formatted_time Starting deployment of $tag using $openrc_file for credentials."
+echo "$formatted_time Starting deployment of ' $tag ' using ' $openrc_file ' for credentials."
 #echo  "Starting deployment of $tag using $openrc_file for credential"
 echo "$formatted_time Detecting suitable image, looking for Ubuntu 22.04 J"
-# Find the image ID for Ubuntu 20.04
+# Find the image ID for Ubuntu 22.04
 image=$(openstack image list --format value | grep "$image_name")
 # Check if image is empty
 if [[ -z "$image" ]]; then
@@ -39,7 +46,6 @@ else
     echo "$formatted_time Image Ubuntu 22.04 with ID : $image_id exist. "
 fi
 
-
 # Check if an external network is available in the OpenStack environment
 external_net=$(openstack network list --external --format value -c ID )
 if [ -z "$external_net" ]; then
@@ -47,17 +53,26 @@ if [ -z "$external_net" ]; then
     exit 1
 fi
 
-# Check if floating IP addresses are available, and if not, create two new ones
+SecurityGroupExist1=$(openstack security group show -f value -c name "$SecurityGroup" 2>/dev/null )
+SecurityGroupExist2=$(openstack security group show "${tag}_SG" 2>/dev/null)
+if [[ -n "$SecurityGroupExist1" || "$SecurityGroupExist2" ]]; then
+    echo "$formatted_time: The 'default' or  '${tag}_SG' Security group already exists."
+else
+    SecurityGroup="${tag}_SG"
+    # Create a security group
+    openstack security group create "$SecurityGroup" --description "Security Group for $tag" >/dev/null 2>&1
+    openstack security group rule create --protocol any --ingress --remote-ip 0.0.0.0/0  "$SecurityGroup" >/dev/null 2>&1
+    echo "$formatted_time: Created a security group with the tag '$tag': $SecurityGroup"
+fi
+#openstack security group create GroupName --description Description
 
+# Check if floating IP addresses are available, and if not, create two new ones
 floating_ips=$(openstack floating ip list -f value -c "Floating IP Address" )
-#te '+%Y-%m-%d %H:%M:%S')Checking if we have floating IPs availible, we have 0 availible."
-#     echo "Floating IP list is $floating_ips"
 floating_num=$(openstack floating ip list -f value -c "Floating IP Address" | wc -l )
 if [[ floating_num -ge 1 ]]; then
 # Use the second available floating IP for the proxy server
     floating_ip_bastion=$(echo "$floating_ips" | awk 'NR==1')
     echo "$formatted_time floating_ip_bastion $floating_ip_bastion"
-    
     
     if [[ floating_num -ge 2 ]]; then
     # Use the first available floating IP for the Bastion server
@@ -129,9 +144,7 @@ else
     echo "$formatted_time Subnet '$SubnetName' added to router '$RouterName'"
 fi
 
-# # Add the subnet to the router
-# openstack router add subnet "$RouterName" "$SubnetName"
-# echo "$formatted_timeSubnet '$SubnetName' added to router '$RouterName'"
+
 
 # Check if the Bastion server with the specified tag already exists, and create if not
 server_exists=$(openstack server show -f value -c name "$ServerName" 2>/dev/null)
@@ -140,7 +153,10 @@ if [ -n "$server_exists" ]; then
 else
     openstack server create --flavor "$flavor" --image "$image_id" --network "$NetworkName" \
         --security-group "$SecurityGroup" --key-name "$KeyName" "$ServerName" >/dev/null 2>&1
-    echo "$formatted_time Server created with the name '$ServerName'"
+        server_exists1=$(openstack server show -f value -c name "$ServerName" 2>/dev/null)
+        if [ -n "$server_exists1" ]; then
+            echo "$formatted_time Server created with the name '$ServerName'"
+        fi
 fi
 
 # Check if the Proxy server with the specified tag already exists, and create if not
@@ -151,14 +167,16 @@ else
 # Create the Proxy server instance with the same configuration as the Bastion server
     openstack server create --flavor "$flavor" --image "$image_id" --network "$NetworkName" \
         --security-group "$SecurityGroup" --key-name "$KeyName" "$ProxyServerName" >/dev/null 2>&1 
-    echo "$formatted_time Proxy server created with the name '$ProxyServerName'"
+        proxy_server_exists1=$(openstack -q server show -f value -c name "$ProxyServerName" 2>/dev/null)
+        if [ -n "$proxy_server_exists1" ]; then
+            echo "$formatted_time Proxy server created with the name '$ProxyServerName'"
+        fi       
 fi
 
 # Read the number of nodes from server.conf
 server_conf="server.conf"
-echo "$formatted_time Will need 3 nodes (server.conf), launching them."
 num_nodes=$(grep -i "num_nodes" "$server_conf" | awk -F "=" '{print $2}' | tr -d ' ')
-
+echo "$formatted_time Will need $num_nodes nodes (read from server.conf), launching them."
 # Check if the Node servers with the specified tag already exist, and create if not
 for ((i = 1; i <= num_nodes; i++)); do
     Node_server_exists=$(openstack server -q show -f value -c name "${tag}_Node$i" 2>/dev/null )
@@ -168,7 +186,10 @@ for ((i = 1; i <= num_nodes; i++)); do
         # Create the Node$i server instance with the same configuration as the previous servers
         openstack server create --flavor "$flavor" --image "$image_id" --network "$NetworkName" \
             --security-group "$SecurityGroup" --key-name "$KeyName" "${tag}_Node$i" >/dev/null 2>&1
-        echo "$formatted_time Node$i server created with the name '${tag}_Node$i'"
+        Node_server_exists1=$(openstack server -q show -f value -c name "${tag}_Node$i" 2>/dev/null)
+        if [ -n "$Node_server_exists1" ]; then
+            echo "$formatted_time server created with the name '${tag}_Node$i'"
+        fi   
     fi
 done
 
@@ -184,9 +205,10 @@ done
 echo "" >> "$hosts_file"
 echo "[all:vars]" >> "$hosts_file"
 echo "ansible_user=ubuntu" >> "$hosts_file"
-echo "ansible_ssh_private_key_file=/.ssh/id_rsa.pub" >> "$hosts_file"
+echo "ansible_ssh_private_key_file=/.ssh/$KeyNameP" >> "$hosts_file"
 # Print a message indicating the hosts file has been created
 echo "$formatted_time host configuration file created: $hosts_file"
+
 
 bastion_ip=$(openstack server show -f value -c addresses $ServerName | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
 #echo "$formatted_time IP bastion = '$bastion_ip'"
@@ -210,8 +232,8 @@ floating_ip_proxy=$(echo "$floating_ips" | awk 'NR==2')
 # Assign the floating IPs to the servers
 openstack server add floating ip $ServerName $floating_ip_bastion 
 openstack server add floating ip $ProxyServerName $floating_ip_proxy
-echo "$formatted_time Assigned floating IP $floating_ip_bastion to server $ServerName"
-echo "$formatted_time Assigned floating IP $floating_ip_proxy to server $ProxyServerName"
+#echo "$formatted_time Assigned floating IP $floating_ip_bastion to server $ServerName"
+#echo "$formatted_time Assigned floating IP $floating_ip_proxy to server $ProxyServerName"
 
 # # Generate SSH configuration file
 ssh_config_file="config"
@@ -224,7 +246,7 @@ for ((i=1; i<= num_nodes; i++)); do
     echo "  HostName $Node_ip" >> "$ssh_config_file"
     echo "  User ubuntu" >> "$ssh_config_file"
     echo "  StrictHostKeyChecking no" >> "$ssh_config_file"
-    echo "  IdentityFile ~/.ssh/id_rsa" >> "$ssh_config_file"
+    echo "  IdentityFile ~/.ssh/$KeyNameP" >> "$ssh_config_file"
     echo "" >> "$ssh_config_file"
 done
 echo "# SSH configuration for ${tag}_proxy" >> "$ssh_config_file"
@@ -232,23 +254,26 @@ echo "Host ${tag}_proxy" >> "$ssh_config_file"
 echo "  HostName $proxy_ip" >> "$ssh_config_file"
 echo "  User ubuntu" >> "$ssh_config_file"
 echo "  StrictHostKeyChecking no" >> "$ssh_config_file"
-echo "  IdentityFile ~/.ssh/id_rsa" >> "$ssh_config_file"
+echo "  IdentityFile ~/.ssh/$KeyNameP" >> "$ssh_config_file"
 
 echo "$formatted_time Base SSH configuration file created: $ssh_config_file"
 
 
 # Install Ansible on the Bastion server and run a playbook
-echo "$formatted_time Install ansible"
-ssh -o StrictHostKeyChecking=no -i id_rsa.pub ubuntu@$floating_ip_bastion 'sudo apt update >/dev/null 2>&1 && sudo apt install -y ansible >/dev/null 2>&1'
-# Checking the Ansible version of host
-ansible_version=$(ssh -i id_rsa.pub ubuntu@$floating_ip_bastion 'ansible --version')
-echo "$formatted_time Ansible installed successfully" >/dev/null 2>&1
-echo "$formatted_time Ansible version: $ansible_version " >/dev/null 2>&1
-
+echo "$formatted_time Installig  Ansible process  on bastion..."
+ssh -o StrictHostKeyChecking=no -i $PublicKey ubuntu@$floating_ip_bastion 'sudo apt update >/dev/null 2>&1 && sudo apt install -y ansible >/dev/null 2>&1 '
+# Check if Ansible is installed by running ansible --version
+ansible_version=$(ssh -i $PublicKey ubuntu@$floating_ip_bastion 'ansible --version 2>/dev/null | grep "ansible" | awk "{print \$2}"')
+if [ -z "$ansible_version" ]; then
+    echo "$formatted_time Ansible installation failed or not found in bastion..."
+fi
+#echo "$ansible_version"
 
 # Copy the public key, SSH config file, and Ansible playbook to the Bastion server
-echo "$formatted_time Copying files and public key to the Bastion server"
-files=("id_rsa.pub" "id_rsa" "$ssh_config_file" "hosts" "site.yaml" "server.conf" "my_flask_app.service" "application2.py" "haproxy.cfg.j2" "snmpd.conf" "monitoring-config.conf.j2")
+echo "$formatted_time Copying files and keys to the Bastion server"
+#echo  "$KeyNameP" 
+#echo "$PublicKey"
+files=("hosts" "nginx_udp.j2" "nginx.conf" "$PublicKey" "$KeyNameP"  "$ssh_config_file"  "site.yaml" "server.conf" "my_flask_app.service"   "application2.py" "haproxy.cfg.j2" "snmpd.conf" )
 # Check if files exist on the remote server, and add files that need to be copied to the "files_to_copy" array
 files_to_copy=()
 for file in "${files[@]}"; do
@@ -267,10 +292,11 @@ if [ $NumOfFailedCopy -eq 0 ]; then
 else 
     echo "$formatted_time Error copy ,  one files did not copy successfully."
 fi
+
 echo "$formatted_time Running playbook..."
 # Run the Ansible playbook on the Bastion server
-ssh -i id_rsa.pub ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml "
-#ssh -i id_rsa.pub ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml --ignore-warnings"
+ssh -i $PublicKey ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml " 
+
 
 echo "$formatted_time Done, solution has been deployed."
 echo "$formatted_time Validates operation..."
@@ -286,3 +312,35 @@ done
 if [ $NumOfNodes -eq $num_nodes ]; then
     echo "$formatted_time ok"
 fi
+
+
+# # Function to run SNMP get command
+# run_snmpget() {
+#   local ip="$1"
+#   local oid="$2"
+#   snmpget -t 1 -r 1 -v2c -c public "$ip":161 "$oid"
+# }
+# echo "$formatted_time Running SNMP check..."
+# # Assuming your Bastion server's IP is stored in the $floating_ip_bastion variable
+# # Modify the SNMP OID and other parameters as needed for your SNMP check
+# snmp_oid="1.3.6.1.2.1.1.1.0"
+# for ((i = 1; i <= 3; i++)); do
+#     snmp_output=$(run_snmpget "${floating_ip_proxy}" "$snmp_oid" )
+#     snmpwalk -c public -v2c $floating_ip_proxy:161 1.3.6.1.2.1.1.1
+#     echo "SNMP Result for Iteration $i:"
+#     echo "$snmp_output"
+#     echo
+#     sleep 1
+# done
+
+echo "$formatted_time Running SNMP check..."
+
+# Assuming your Bastion server's IP is stored in the $floating_ip_bastion variable
+# Modify the SNMP OID and other parameters as needed for your SNMP check
+snmp_oid="1.3.6.1.2.1.1.1"
+for ((i = 1; i <= 3; i++)); do
+    snmpwalk -c public -v2c "$floating_ip_proxy:161" "$snmp_oid"
+    echo
+    sleep 1
+done
+
