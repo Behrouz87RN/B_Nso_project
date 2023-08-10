@@ -1,0 +1,145 @@
+---
+- name: Update Ubuntu system and deploy Flask application and HAproxy
+  hosts: webservers haproxy
+  become: true
+  tasks:
+    - name: Update Ubuntu system
+      apt:
+        update_cache: yes
+
+    - name: Install required packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - python3-pip
+        - curl
+        - net-tools
+
+    - name: Install ping3 via pip
+      pip:
+        name: ping3
+        state: present
+        executable: pip3
+
+- name: Deploy Flask application
+  hosts: webservers
+  become: true
+  tasks:
+    - name: Install required packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - snmpd
+        - snmp-mibs-downloader
+
+    - name: Install Python and Flask
+      ansible.builtin.pip:
+        name:
+          - flask
+
+    - name: Copy Flask application script
+      ansible.builtin.copy:
+        src: application2.py
+        dest: /home/application2.py
+        mode: '0755'
+
+    - name: Copy my-app-service
+      ansible.builtin.copy:
+        src: my_flask_app.service
+        dest: /etc/systemd/system/my_flask_app.service
+        mode: '0777'
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Start Flask application service
+      ansible.builtin.shell:
+        cmd: "sudo systemctl restart my_flask_app"
+
+    - name: Copy snmpd.conf file
+      copy:
+        src: snmpd.conf
+        dest: "/etc/snmp/snmpd.conf"
+
+    - name: Restart snmpd
+      service:
+        name: snmpd
+        state: restarted
+        enabled: yes
+
+- name: Configure haproxy
+  hosts: haproxy
+  become: true
+  vars:
+    enable_check_external: true 
+    Mymessage: "haproxy: Hi, welcome to HAproxy (load balancer)"
+    algorithm: roundrobin
+    algorithm_udp: roundrobin
+    loadbalancer_name: haproxy
+    loadbal_src_path: haproxy.cfg.j2
+    loadbal_dest_path: /etc/haproxy/haproxy.cfg
+    host_ipv4_address: "{{ hostvars[inventory_hostname]['ansible_default.ipv4.address']['address'] }}"
+
+  tasks:
+    - name: Task7(Install HAproxy)
+      apt:
+        name: "{{ loadbalancer_name }}"
+        state: present
+
+    - name: Task8(Copy HAproxy Config File)
+      template:
+        src: "{{ loadbal_src_path }}"
+        dest: "{{ loadbal_dest_path }}"
+    - name: Pause for 0.1 seconds between tasks
+      pause:
+        seconds: 0.1
+
+    - name: Install Requirements
+      pip:
+        name:
+          - net-tools
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Upload Nginx Default config
+      template:
+        src: nginx.conf
+        dest: /etc/nginx/nginx.conf
+        mode: '0644'
+
+    - name: Upload Nginx UDP config
+      template:
+        src: nginx_udp.j2
+        dest: /etc/nginx/modules-available/udp.conf
+
+    - name: Enable UDP site
+      ansible.builtin.file:
+        src: /etc/nginx/modules-available/udp.conf
+        dest: /etc/nginx/modules-enabled/udp.conf
+        state: link
+
+    - name: Kill the process and release port 161
+      shell: |
+        pid=$(netstat -an | grep 161 | awk '{print $7}')
+        if [ -n "$pid" ]; then
+          kill -9 $pid
+          echo "Port 161 has been released."
+        fi
+
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted 
+
+    - name: Task9(Restart HAproxy)
+      systemd:
+        name: "{{ loadbalancer_name }}"
+        state: restarted
+        enabled: yes
+
