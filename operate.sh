@@ -104,13 +104,11 @@ playbook() {
 createServer () {
     local Server=$1
     openstack server create --flavor "$flavor" --image "$image_id" --network "$NetworkName" \
-    --security-group "$SecurityGroup" --key-name "$KeyName" "$Server" >/dev/null 2>&1 
-    sleep 5
+    --security-group "$SecurityGroup" --key-name "$KeyName" "$Server" --wait >/dev/null 2>&1 
     server_exists1=$(openstack -q server show -f value -c name "$Server" 2>/dev/null)
     if [ -n "$server_exists1" ]; then
         new_ip=$(openstack server show -f value -c addresses $Server | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
-        sleep 5
-        echo "$formatted_time  server created with the name '$server_exists1' with ip: '$new_ip' "
+        echo "$formatted_time server created with the name '$server_exists1' with ip: '$new_ip' "
         
     fi       
 }
@@ -130,7 +128,7 @@ is_node_available() {
 
 udpate_files() {
     all_nodes=("$@")
-    echo "NEW Avialable nodes are ${all_nodes[@]}"
+    #echo "NEW Avialable nodes are ${all_nodes[@]}"
 
     ssh_config_file="config"
     # # Clear the existing content of the SSH config file (optional, uncomment if needed)
@@ -152,8 +150,8 @@ udpate_files() {
     echo "  StrictHostKeyChecking no" >> "$ssh_config_file"
     echo "  IdentityFile ~/.ssh/$KeyNameP" >> "$ssh_config_file"
 
-    echo "$formatted_time Base SSH configuration file created: $ssh_config_file"
-
+    #echo "$formatted_time Base SSH configuration file created: $ssh_config_file"
+    sleep 1
      
     # Generate hosts file
     hosts_file="hosts"
@@ -170,64 +168,60 @@ udpate_files() {
     echo "ansible_ssh_private_key_file=/.ssh/$KeyNameP" >> "$hosts_file"
     # Print a message indicating the hosts file has been created
     echo "$formatted_time host configuration file created: $hosts_file"
-
-    scp  -o BatchMode=yes config ubuntu@$floating_ip_bastion:~/.ssh/config 
-    scp  -o BatchMode=yes hosts ubuntu@$floating_ip_bastion:~/.ssh/hosts
+    sleep 1
+    scp  -o BatchMode=yes config ubuntu@$floating_ip_bastion:~/.ssh/config &>/dev/null
+    scp  -o BatchMode=yes hosts ubuntu@$floating_ip_bastion:~/.ssh/hosts &>/dev/null 
+    sleep 1
 }
 
 check_and_delete_server() {
     local Server="$1"
-    local formatted_time=$(date +"%Y-%m-%d %H:%M:%S")
 
     ServerUnreachableExists=$(openstack -q server show -f value -c name "$Server" 2>/dev/null)
     if [ -n "$ServerUnreachableExists" ]; then
         #echo "${formatted_time} The server with the tag ${tag} already exists but not available: ${Server} so it will be deleted..."
         if openstack server delete "$Server"; then
-            echo "$formatted_time Deleted $Server"
+            echo "${formatted_time}  Deleted $Server"
         else
-            echo "$formatted_time Failed to delete $Server"
+            echo "${formatted_time} Failed to delete $Server"
         fi
     fi
 }
 
 validate_operation() {
     local num_nodes="$1"
+    echo "$formatted_time Done, solution has been deployed."
     echo "$formatted_time Validates operation..."
     NumOfNodes=0
 
     for ((i = 1; i <= num_nodes; i++)); do
         CheckNodes=$(curl http://$floating_ip_proxy 2>/dev/null)
-        echo "$formatted_time $CheckNodes"
+        echo "$formatted_time Request$i : $CheckNodes"
         if [[ "$CheckNodes" == *"${tag}-node$i"* ]]; then
             ((NumOfNodes++))
         fi
     done
 
     if ((NumOfNodes >= num_nodes)); then
-        echo "$formatted_time ok"
+        echo "$formatted_time OK"
     fi
 
+    # Function to run SNMP get command
     echo "$formatted_time Running SNMP check..."
     # Assuming your Bastion server's IP is stored in the $floating_ip_bastion variable
     # Modify the SNMP OID and other parameters as needed for your SNMP check
-    snmp_oid="1.3.6.1.2.1.1.1.0"
-    for ((i = 1; i <= 3; i++)); do
-        snmp_output=$(run_snmpget "$floating_ip_proxy" "$snmp_oid" )
-        snmpwalk -c public -v2c $floating_ip_proxy 1.3.6.1.2.1.1.1
-        echo "SNMP Result for Iteration $i:"
-        echo "$snmp_output"
+    snmp_oid="1.3.6.1.2.1.1.1"
+    for ((i = 1; i <= num_nodes; i++)); do
+        snmpwalk -c public -v2c "$floating_ip_proxy:161" "$snmp_oid"
         echo
-        sleep 2
+        sleep 1
     done
-    echo "$formatted_time SNMP check completed."
+
+
 }
 
 
 while true; do
-    
-    # # list of nodes
-    # nodes= $(get_node_names)
-    # echo "list of nodes: $nodes"
 
     hosts_lines=$(ssh -i "$PublicKey" ubuntu@"$floating_ip_bastion" 'cat ~/.ssh/hosts')
     # Extract server names from hosts in bastion server using awk and store them in an array
@@ -236,9 +230,10 @@ while true; do
         server_names+=("$line")
     done < <(echo "$hosts_lines" | awk '/^\[webservers\]/{f=1; next} /^\[/{f=0} f && NF {print $1}')
     # Print the server names stored in the array after each other
-    for server in "${server_names[@]}"; do
-        echo "$server"
-    done
+    #echo ${formatted_time} list of servers which should be available:
+    # for server in "${server_names[@]}"; do
+    #     echo "                                                                  $server"
+    # done
     
 
     # Set the path to the server.conf file
@@ -247,18 +242,18 @@ while true; do
     serverConf_Num=$(grep -oP 'num_nodes = \K\d+' "$config_file")
     # Check if the value is not empty
     if [ -z "$serverConf_Num" ]; then
-        echo "Error: Unable to find the value of '$num_nodes' in server.conf."
+        echo "${formatted_time} Error: Unable to find the value of '$num_nodes' in server.conf."
         exit 1
     fi
-    echo "Number of nodes required: $serverConf_Num Nodes"
+    echo "${formatted_time} Reading 'server.conf' Number of nodes required: $serverConf_Num Nodes"
 
     available_nodes=()
     unreachable_nodes=()
 
-     # ping hosts
+     # monitoring : ping hosts
     for Server in "${server_names[@]}"; do
         node_ip=$(openstack server show -f value -c addresses "$Server" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
-        #echo "$node_ip"
+        #echo "${formatted_time} checking availability of server:'$Server with ip :'$node_ip"
 
         ssh -i $PublicKey ubuntu@$floating_ip_bastion "ping -q -c 1 "$node_ip" " >/dev/null 2>&1
         if [ $? -eq 0 ]; then
@@ -268,14 +263,14 @@ while true; do
         fi
     done
 
-    echo "Servers with ping:"
+    #echo "Servers with ping:"
     for server in "${available_nodes[@]}"; do
-        echo "  $server"
+        echo "${formatted_time} ## monitoring alert: server   $server is avaliable "
     done
     num_available_nodes="${#available_nodes[@]}"
-    echo "Servers without ping:"
+    #echo "Servers without ping:"
     for server in "${unreachable_nodes[@]}"; do
-        echo "  $server"
+        echo "${formatted_time} @ monitoring alert server:   $server is unavaliable "
     done 
     num_unavailable_nodes="${#unreachable_nodes[@]}"
 
@@ -287,20 +282,10 @@ while true; do
     fi
  
     for Server in "${unreachable_nodes[@]}"; do
-        echo "Clean up $Server"
+        echo "${formatted_time} Clean up unavailable Node : $Server"
         check_and_delete_server "$Server"
-        # ServerUnreachableExists=$(openstack -q server show -f value -c name "$Server" 2>/dev/null)
-        # if [ -n "$ServerUnreachableExists" ]; then
-        #     echo "${formatted_time} The server with the tag ${tag} already exists but not available: ${Server} so it will be delete..."
-        #     if openstack server delete "$Server"; then
-        #         echo "$formatted_time Releasing $Server"
-        #     else
-        #         echo "$formatted_time Failed to release $Server"
-        #     fi
-        # fi
     done
 
-    #if [ "$num_available_nodes" -gt "$serverConf_Num"]; then
     if [ "$num_available_nodes" -gt "$serverConf_Num" ]; then
 
         while [[ ${#available_nodes[@]} -ne $serverConf_Num ]]; do
@@ -308,21 +293,21 @@ while true; do
             last_node="${available_nodes[num_available_nodes - 1]}"
             check_and_delete_server "$last_node"
             unset "available_nodes[$num_available_nodes - 1]"
-            echo ">>> ${available_nodes[@]}"
+            #echo ">>> ${available_nodes[@]}"
             num_available_nodes="${#available_nodes[@]}"
             sleep 2
         done
 
     elif [ "$num_available_nodes" -lt "$serverConf_Num" ]; then
     # Add new nodes
-        echo "Available Nodes ${available_nodes[@]}"
+        #echo "Available Nodes ${available_nodes[@]}"
         # for ((i=1; i<=$serverConf_Num; i++)); do
         i=0
         while [[ ${#available_nodes[@]} -ne $serverConf_Num ]]; do
             ((i++))
             newNode="${tag}_Node$i"
               if [[ ! " ${available_nodes[*]} " =~ " $newNode " ]]; then
-                echo "Creating new node: $newNode"
+                echo "${formatted_time} Launching new node/s: ${newNode} waiting for completion"
                 createServer "$newNode";
                 sleep 2
                 available_nodes+=("$newNode")
@@ -330,10 +315,10 @@ while true; do
         done
     fi
 
-    echo "NEW Avialable nodes are ${available_nodes[@]}"
+    #echo "NEW Avialable nodes are ${available_nodes[@]}"
     num_available_nodes="${#available_nodes[@]}"
     udpate_files "${available_nodes[@]}"
-
+    sleep 2
     num_available_nodes="${#available_nodes[@]}"
     playbook 
     validate_operation "$num_available_nodes"
@@ -349,6 +334,7 @@ done
 # // if  conf-NUM GT  reachable:  create server with available name ()
 # // if  conf-NUM LT  reachable:  remove from the end servers
 # // make ne w hosts file
+
 
 
 
