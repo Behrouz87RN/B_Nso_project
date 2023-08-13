@@ -53,44 +53,7 @@ floating_ip_proxy=$(echo "$floating_ips" | awk 'NR==2')
 echo "$formatted_time floating_ip_proxy $floating_ip_proxy"
 
 
-# # Function to replace IP address for a specific node
-# replace_node_ip_sshConfig() {
-#     local node_name=$1
-#     local new_ip=$2
-#     # SSH into the bastion and read the content of ~/.ssh/config
-#     ssh_lines=$(ssh -i $PublicKey ubuntu@"$floating_ip_bastion" 'cat ~/.ssh/config')
-#     # Extract the value of the "search" variable from ssh_lines
-#     # search_value=$(echo "$ssh_lines" | awk -F  -v target="$node_name" '$2 ~ target { print }')
-#     if echo "$ssh_lines" | grep -q -w "$node_name"; then
-#         echo "$node_name is not present"
 
-#         # Use awk to find the line containing "HostName" for the specified node and replace the IP address
-#         new_ssh_lines=$(echo "$ssh_lines" | awk -v target="$node_name" -v newip="$new_ip" '
-#             /^Host / {
-#                 host_entry = $2;
-#             }
-#             host_entry == target && $1 == "HostName" {
-#                 $1 = "  HostName";
-#                 $2 = newip;
-#             }
-#             { print }
-#         ')
-#         # Write the updated SSH config file
-#         printf "%s\n" "$new_ssh_lines" > "config"
-#     else
-#         echo "$node_name is present"
-#         echo "# SSH configuration for ${tag}_Node1" > "config"
-#         echo "Host ${tag}_Node1" >> "config"
-#         echo "  HostName $Node1_ip" >> "config"
-#         echo "  User ubuntu" >> "config"
-#         echo " StrictHostKeyChecking no" >> "config"
-#         echo "  IdentityFile ~/.ssh/$PublicKeyP" >> "config"
-#         echo "" >> "config"
-#         echo "$ssh_lines" >> "config"
-       
-#     fi
-# scp  -o BatchMode=yes config ubuntu@$floating_ip_bastion:~/.ssh/config
-# }
 
 playbook() {
     echo "$formatted_time Running playbook..."
@@ -181,7 +144,7 @@ check_and_delete_server() {
     if [ -n "$ServerUnreachableExists" ]; then
         #echo "${formatted_time} The server with the tag ${tag} already exists but not available: ${Server} so it will be deleted..."
         if openstack server delete "$Server"; then
-            echo "${formatted_time}  Deleted $Server"
+            echo "${formatted_time} Deleted $Server"
         else
             echo "${formatted_time} Failed to delete $Server"
         fi
