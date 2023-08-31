@@ -296,7 +296,7 @@ fi
 
 echo "$formatted_time Running playbook..."
 # Run the Ansible playbook on the Bastion server
-ssh -i $p ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml " 
+ssh -i $KeyNameP ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml " 
 
 
 echo "$formatted_time Done, solution has been deployed."
