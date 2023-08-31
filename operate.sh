@@ -17,6 +17,7 @@ RouterName="${tag}_router"
 ServerName="${tag}_bastion"
 ProxyServerName="${tag}_proxy"
 #SecurityGroup="default"
+SecurityGroup="${tag}_SG"
 image_name="Ubuntu 22.04 J"
 flavor="1C-2GB"
 formatted_time=$(date +"%Y-%m-%d %H:%M:%S")
