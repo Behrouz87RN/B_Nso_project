@@ -16,7 +16,8 @@ SubnetName="${tag}_subnet"
 RouterName="${tag}_router"
 ServerName="${tag}_bastion"
 ProxyServerName="${tag}_proxy"
-SecurityGroup="default"
+#SecurityGroup="default"
+SecurityGroup="${tag}_SG"
 image_name="Ubuntu 22.04 J"
 flavor="1C-2GB"
 
@@ -261,9 +262,9 @@ echo "$formatted_time Base SSH configuration file created: $ssh_config_file"
 
 # Install Ansible on the Bastion server and run a playbook
 echo "$formatted_time Installig  Ansible process  on bastion..."
-ssh -o StrictHostKeyChecking=no -i $PublicKey ubuntu@$floating_ip_bastion 'sudo apt update >/dev/null 2>&1 && sudo apt install -y ansible >/dev/null 2>&1 '
+ssh -o StrictHostKeyChecking=no -i $KeyNameP ubuntu@$floating_ip_bastion 'sudo apt update >/dev/null 2>&1 && sudo apt install -y ansible >/dev/null 2>&1 '
 # Check if Ansible is installed by running ansible --version
-ansible_version=$(ssh -i $PublicKey ubuntu@$floating_ip_bastion 'ansible --version 2>/dev/null | grep "ansible" | awk "{print \$2}"')
+ansible_version=$(ssh -i $KeyNameP ubuntu@$floating_ip_bastion 'ansible --version 2>/dev/null | grep "ansible" | awk "{print \$2}"')
 if [ -z "$ansible_version" ]; then
     echo "$formatted_time Ansible installation failed or not found in bastion..."
 fi
@@ -277,7 +278,7 @@ files=("hosts" "nginx_udp.j2" "nginx.conf" "$PublicKey" "$KeyNameP"  "$ssh_confi
 # Check if files exist on the remote server, and add files that need to be copied to the "files_to_copy" array
 files_to_copy=()
 for file in "${files[@]}"; do
-    scp  -o BatchMode=yes $file ubuntu@$floating_ip_bastion:~/.ssh  &>/dev/null
+    scp  -i $KeyNameP -o BatchMode=yes $file ubuntu@$floating_ip_bastion:~/.ssh  &>/dev/null
 done
 # Copy the files that don't exist on the remote server
 NumOfFailedCopy=0
@@ -295,7 +296,7 @@ fi
 
 echo "$formatted_time Running playbook..."
 # Run the Ansible playbook on the Bastion server
-ssh -i $PublicKey ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml " 
+ssh -i $p ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml " 
 
 
 echo "$formatted_time Done, solution has been deployed."

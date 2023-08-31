@@ -16,7 +16,7 @@ SubnetName="${tag}_subnet"
 RouterName="${tag}_router"
 ServerName="${tag}_bastion"
 ProxyServerName="${tag}_proxy"
-SecurityGroup="default"
+#SecurityGroup="default"
 image_name="Ubuntu 22.04 J"
 flavor="1C-2GB"
 formatted_time=$(date +"%Y-%m-%d %H:%M:%S")
@@ -57,9 +57,9 @@ echo "$formatted_time floating_ip_proxy $floating_ip_proxy"
 
 playbook() {
     echo "$formatted_time Running playbook..."
-    ssh -o StrictHostKeyChecking=no -i $PublicKey ubuntu@$floating_ip_bastion 'sudo apt update >/dev/null 2>&1 && sudo apt install -y ansible >/dev/null 2>&1'
+    ssh -o StrictHostKeyChecking=no -i $KeyNameP ubuntu@$floating_ip_bastion 'sudo apt update >/dev/null 2>&1 && sudo apt install -y ansible >/dev/null 2>&1'
     # Run the Ansible playbook on the Bastion server
-    ssh -o StrictHostKeyChecking=no -i $PublicKey ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml "
+    ssh -o StrictHostKeyChecking=no -i $KeyNameP ubuntu@$floating_ip_bastion "ansible-playbook -i ~/.ssh/hosts ~/.ssh/site.yaml "
 }
 
 
@@ -186,7 +186,7 @@ validate_operation() {
 
 while true; do
 
-    hosts_lines=$(ssh -i "$PublicKey" ubuntu@"$floating_ip_bastion" 'cat ~/.ssh/hosts')
+    hosts_lines=$(ssh -i "$KeyNameP" ubuntu@"$floating_ip_bastion" 'cat ~/.ssh/hosts')
     # Extract server names from hosts in bastion server using awk and store them in an array
     server_names=()
     while IFS= read -r line; do
@@ -218,7 +218,7 @@ while true; do
         node_ip=$(openstack server show -f value -c addresses "$Server" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
         #echo "${formatted_time} checking availability of server:'$Server with ip :'$node_ip"
 
-        ssh -i $PublicKey ubuntu@$floating_ip_bastion "ping -q -c 1 "$node_ip" " >/dev/null 2>&1
+        ssh -i $KeyNameP ubuntu@$floating_ip_bastion "ping -q -c 1 "$node_ip" " >/dev/null 2>&1
         if [ $? -eq 0 ]; then
             available_nodes+=("$Server")
         else
